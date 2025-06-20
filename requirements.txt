@@ -1,0 +1,14 @@
+streamlit
+pandas
+joblib
+altair
+langchain
+langchain-community
+langchain-experimental
+ollama
+catboost
+scikit-learn
+langchain-groq
+requests
+langchain-experimental
+tabulate
