@@ -1,26 +1,21 @@
 import streamlit as st
-from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
 import joblib
 import altair as alt
 import time
-import os
 from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
-from langchain_experimental.agents import create_pandas_dataframe_agent
-from langchain.agents.agent import AgentExecutor
 
-load_dotenv()
-# Load Models
+# === Load Models ===
 ef_model = joblib.load("catboost_ef_model.pkl")
 vo2_model = joblib.load("vo2_model_rf.pkl")
 
-# Page Setup
+# === Page Setup ===
 st.set_page_config(page_title="Heart Digital Twin", layout="wide")
 st.title("Digital Twin Dashboard – Heart EF & VO₂")
 
-# Sidebar Inputs
+# === Sidebar Inputs ===
 st.sidebar.header("Enter Patient Vitals")
 hr = st.sidebar.number_input("Heart Rate (bpm)", value=85)
 sbp = st.sidebar.number_input("Systolic BP (mmHg)", value=120)
@@ -29,7 +24,7 @@ spo2 = st.sidebar.number_input("SpO₂ (%)", value=96)
 hb = st.sidebar.number_input("Hemoglobin (g/dL)", value=14.0)
 pao2 = st.sidebar.number_input("PaO₂ (mmHg)", value=85.0)
 
-# Input DataFrame (initialize with user inputs)
+# === Input DataFrame ===
 input_df = pd.DataFrame([{
     "Heart Rate": hr,
     "Hemoglobin": hb,
@@ -63,7 +58,7 @@ input_df['oer'] = (spo2 - pao2) / spo2
 input_df['shock_index'] = hr / (sbp + 1e-6)
 input_df['CaO2'] = hb * 1.34 * spo2
 
-# Columns expected by the models
+# === Model Inputs ===
 ef_input_cols = [
     'Heart Rate', 'Hemoglobin', 'PaO2', 'SpO2', 'CaO2', 'O2_Delivery', 'Hb_HR', 'PaO2_div_SpO2',
     'HR_SpO2', 'HR_Hb_SpO2', 'CaO2_per_HR', 'Hb_div_PaO2', 'Hb_times_logHR'
@@ -73,15 +68,13 @@ vo2_input_cols = [
     'oxy_delivery', 'cv_stress', 'pp_ratio', 'mean', 'O2 content diff', 'oer', 'shock_index', 'CaO2'
 ]
 
-# Predict EF & VO2
+# === Make Predictions ===
 input_df["EF_percent"] = ef_model.predict(input_df[ef_input_cols])
 input_df["VO2_ml_per_min"] = vo2_model.predict(input_df[vo2_input_cols])
-
-# Extract predicted values
 ef = input_df["EF_percent"].iloc[0]
 vo2 = input_df["VO2_ml_per_min"].iloc[0]
 
-# Layout: Image + predictions
+# === Layout & Output ===
 col1, col2 = st.columns([1, 2])
 with col1:
     st.image("download.jpg", caption="Cardiac Contraction Pattern", use_container_width=True)
@@ -105,7 +98,7 @@ with col2:
     else:
         st.success(f"✅ VO₂ is within normal range: {vo2:.2f} ml/min")
 
-# Altair bar chart of EF and VO2
+# === Altair Chart ===
 chart_data = pd.DataFrame({
     "Metric": ["EF_percent", "VO2_ml_per_min"],
     "Value": [ef, vo2]
@@ -124,17 +117,15 @@ chart = alt.Chart(chart_data).mark_bar().encode(
 
 st.altair_chart(chart)
 
+# === Groq LLM Analysis ===
 st.markdown("### AI Interpretation via Groq")
 
-groq_api_key = os.getenv("GROQ_API_KEY")
+groq_api_key = st.secrets["api"]["groq_key"]
 if not groq_api_key:
-    st.error("GROQ_API_KEY environment variable not set! Please set your API key.")
+    st.error("GROQ API key missing in secrets. Please set it.")
     st.stop()
 
 start_time = time.time()
-
-from langchain_core.messages import HumanMessage
-from langchain_groq import ChatGroq
 
 groq_llm = ChatGroq(
     groq_api_key=groq_api_key,
@@ -142,7 +133,6 @@ groq_llm = ChatGroq(
     temperature=0.3
 )
 
-# Create simple prompt
 query = f"""
 You are a medical assistant helping patients understand their test results.
 
@@ -159,8 +149,6 @@ For each value:
 Keep the tone informative and reassuring.
 """
 
-
-
 with st.spinner("AI analyzing your heart data..."):
     try:
         response = groq_llm.invoke([HumanMessage(content=query)])
@@ -172,7 +160,7 @@ with st.spinner("AI analyzing your heart data..."):
 end_time = time.time()
 st.write(f"LLM Response Time: {end_time - start_time:.2f} seconds")
 
-# Downloadable report button
+# === Download Button ===
 st.download_button(
     "Download EF/VO₂ Report",
     input_df.to_csv(index=False),
